@@ -35,6 +35,91 @@
  * credit is due.
  */
 
+bool parse_anonymous_attrib(dbref executor, UTF8 *str, UTF8 **atext, dbref *thing)
+{
+    // Get name up to '/'.
+    //
+    size_t i = 0;
+    while (  str[i] != '\0'
+          && str[i] != '/')
+    {
+        i++;
+    }
+
+    // If no '/' in string, return failure.
+    //
+    if (str[i] == '\0')
+    {
+        *atext = NULL;
+        *thing = NOTHING;
+        return false;
+    }
+
+    UTF8 *buff = alloc_lbuf("parse_anonymous_attrib");
+    UTF8 *bp = buff;
+    safe_str(str + i + 1, buff, &bp);
+    *bp = '\0';
+
+    // If #lambda, return atext verbatim
+    //
+    if (i >= 7 && mux_memicmp(str, T("#lambda"), 7) == 0)
+    {
+        *atext = buff;
+        *thing = executor;
+        return true;
+    }
+
+    // If #apply, add arguments, then return
+    //
+    if (i >= 6 && mux_memicmp(str, T("#apply"), 6) == 0)
+    {
+        int n, nargs = mux_atol(str + 6);
+
+        if (nargs < 1)
+            nargs = 1;
+        if (nargs > MAX_WORDS)
+            nargs = MAX_WORDS;
+
+        safe_chr('(', buff, &bp);
+        safe_str(T("%0"), buff, &bp);
+        if (nargs > 10)
+        {
+            for (n = 1; n < 10; n++)
+            {
+                safe_str(T(",%"), buff, &bp);
+                safe_ltoa(n, buff, &bp);
+            }
+            for (n = 10; n < nargs; n++)
+            {
+                safe_str(T(",%=<"), buff, &bp);
+                safe_ltoa(n, buff, &bp);
+                safe_chr('>', buff, &bp);
+            }
+        }
+        else
+        {
+            for (n = 1; n < nargs; n++)
+            {
+                safe_str(T(",%"), buff, &bp);
+                safe_ltoa(n, buff, &bp);
+            }
+        }
+        safe_chr(')', buff, &bp);
+        *bp = '\0';
+
+        *atext = buff;
+        *thing = executor;
+        return true;
+    }
+
+    // Not an anonymous attribute
+    //
+    free_lbuf(buff);
+    *atext = NULL;
+    *thing = NOTHING;
+    return false;
+}
+
 bool parse_and_get_attrib
 (
     dbref   executor,
@@ -47,6 +132,11 @@ bool parse_and_get_attrib
     UTF8  **bufc
 )
 {
+    // Check for anonymous attributes first
+    //
+    if (parse_anonymous_attrib(executor, fargs[0], atext, thing))
+        return true;
+
     ATTR *ap;
 
     // Two possibilities for the first arg: <obj>/<attr> and <attr>.
